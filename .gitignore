@@ -1,0 +1,11 @@
+.venv
+.env
+.DS_Store
+*.pyc
+__pycache__/
+.idea/
+*.swp
+*.swo
+node_modules/
+dist/
+build/

@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="description" content="Dimensional Pinball - A physics-based pinball game across alternate dimensions">
+    <meta name="theme-color" content="#0d1117">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-mobile-web-app-capable" content="yes">
+    <link rel="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="icon" type="image/png" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><circle cx='96' cy='96' r='90' fill='%230d1117' stroke='%23c4a882' stroke-width='4'/><circle cx='96' cy='96' r='30' fill='%23c4a882'/><circle cx='96' cy='96' r='20' fill='%230d1117'/></svg>">
+    <title>Dimensional Pinball</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0d1117;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #c4a882;
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: #0d1117;
+            touch-action: none;
+        }
+
+        #hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 12px;
+            background: linear-gradient(180deg, rgba(13,17,23,0.95) 0%, transparent 100%);
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+            font-family: 'Courier New', monospace;
+        }
+
+        #score {
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        #dimension {
+            text-align: center;
+            flex: 1;
+            font-size: 13px;
+        }
+
+        #balls {
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(13, 17, 23, 0.98);
+            padding: 40px;
+            border-radius: 12px;
+            text-align: center;
+            z-index: 20;
+            display: none;
+            border: 2px solid #c4a882;
+        }
+
+        #gameOverText h1 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #c4a882;
+        }
+
+        #gameOverText p {
+            font-size: 16px;
+            margin: 10px 0;
+            color: #8b949e;
+        }
+
+        #gameOverText button {
+            margin-top: 30px;
+            padding: 12px 30px;
+            background: #c4a882;
+            color: #0d1117;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        #gameOverText button:active {
+            opacity: 0.8;
+        }
+
+        #onboarding {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(13, 17, 23, 0.98);
+            padding: 40px;
+            border-radius: 12px;
+            text-align: center;
+            z-index: 20;
+            display: none;
+            border: 2px solid #c4a882;
+            max-width: 90%;
+        }
+
+        #onboarding h1 {
+            font-size: 28px;
+            margin-bottom: 20px;
+            color: #c4a882;
+        }
+
+        #onboarding p {
+            font-size: 15px;
+            margin: 15px 0;
+            color: #8b949e;
+            line-height: 1.6;
+        }
+
+        #onboarding button {
+            margin-top: 30px;
+            padding: 12px 30px;
+            background: #c4a882;
+            color: #0d1117;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        #onboarding button:active {
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+        <div id="score">SCORE: 0</div>
+        <div id="dimension">CLASSIC</div>
+        <div id="balls">BALLS: 3</div>
+    </div>
+    <div id="onboarding">
+        <h1>Dimensional Pinball</h1>
+        <p>Tap left/right half of screen to control flippers.</p>
+        <p>Hit the portal 3 times to warp to a new dimension.</p>
+        <p>Each dimension has unique physics and visuals.</p>
+        <p>Drag the launcher spring to load, release to fire!</p>
+        <button onclick="startGame()">Start Game</button>
+    </div>
+    <div id="gameOver">
+        <div id="gameOverText">
+            <h1>Game Over</h1>
+            <p id="finalScore">Final Score: 0</p>
+            <p id="bestDimension">Best Dimension: Classic</p>
+            <button onclick="location.reload()">Play Again</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
+    <script>
+        const { Engine, World, Body, Bodies, Events, Composite } = Matter;
+
+        // ============================================
+        // AUDIO ENGINE
+        // ============================================
+        class AudioEngine {
+            constructor() {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                this.masterGain = this.audioContext.createGain();
+                this.masterGain.gain.value = 0.3;
+                this.masterGain.connect(this.audioContext.destination);
+            }
+
+            playSineWave(freq, duration, attack = 0.05, decay = 0.1, volume = 0.3) {
+                const osc = this.audioContext.createOscillator();
+                const gain = this.audioContext.createGain();
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(volume, this.audioContext.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + duration);
+
+                osc.start(this.audioContext.currentTime);
+                osc.stop(this.audioContext.currentTime + duration);
+            }
+
+            playNoise(duration, volume = 0.2) {
+                const bufferSize = this.audioContext.sampleRate * duration;
+                const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                const source = this.audioContext.createBufferSource();
+                const gain = this.audioContext.createGain();
+                source.buffer = buffer;
+                source.connect(gain);
+                gain.connect(this.masterGain);
+                gain.gain.setValueAtTime(volume, this.audioContext.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + duration);
+                source.start(this.audioContext.currentTime);
+            }
+
+            flipperClick() {
+                this.playNoise(0.05, 0.25);
+            }
+
+            bumperBounce(pitch = 800) {
+                this.playSineWave(pitch, 0.15, 0.02, 0.08, 0.2);
+            }
+
+            ballLaunch() {
+                this.playSineWave(400, 0.3, 0.05, 0.15, 0.3);
+                this.playSineWave(600, 0.25, 0.08, 0.12, 0.2);
+            }
+
+            ballDrain() {
+                for (let i = 0; i < 3; i++) {
+                    setTimeout(() => {
+                        this.playSineWave(400 - i * 80, 0.15, 0.05, 0.1, 0.25);
+                    }, i * 80);
+                }
+            }
+
+            portalHit() {
+                this.playSineWave(800, 0.2, 0.05, 0.1, 0.2);
+                this.playSineWave(1200, 0.25, 0.08, 0.12, 0.15);
+                this.playSineWave(600, 0.3, 0.1, 0.15, 0.1);
+            }
+
+            dimensionWarp() {
+                this.playSineWave(1200, 0.3, 0.05, 0.15, 0.3);
+                this.playSineWave(600, 0.35, 0.08, 0.2, 0.25);
+            }
+        }
+
+        // ============================================
+        // GAME STATE
+        // ============================================
+        const gameState = {
+            score: 0,
+            balls: 3,
+            dimension: 0,
+            portalHits: 0,
+            gameRunning: false,
+            gameOverFlag: false,
+            highScores: [0, 0, 0, 0], // per dimension
+            touchStartY: 0,
+            isDraggingLauncher: false,
+            launcherPower: 0,
+        };
+
+        const dimensions = [
+            {
+                name: 'Classic',
+                gravity: 1.0,
+                friction: 0.01,
+                restitution: 0.9,
+                bgColor: '#0d1117',
+                primaryColor: '#00d9ff',
+                secondaryColor: '#ff006e',
+                theme: 'classic',
+                viscosity: 0,
+                windForce: 0,
+            },
+            {
+                name: 'Space',
+                gravity: 0.3,
+                friction: 0.005,
+                restitution: 0.95,
+                bgColor: '#0a0e27',
+                primaryColor: '#a371f7',
+                secondaryColor: '#58a6ff',
+                theme: 'space',
+                viscosity: 0,
+                windForce: 0,
+            },
+            {
+                name: 'Ocean',
+                gravity: 1.0,
+                friction: 0.05,
+                restitution: 0.7,
+                bgColor: '#0d2638',
+                primaryColor: '#3fb950',
+                secondaryColor: '#58a6ff',
+                theme: 'ocean',
+                viscosity: 0.008,
+                windForce: 0,
+            },
+            {
+                name: 'Storm',
+                gravity: 1.0,
+                friction: 0.01,
+                restitution: 0.9,
+                bgColor: '#1a1f2e',
+                primaryColor: '#ffd33d',
+                secondaryColor: '#8b949e',
+                theme: 'storm',
+                viscosity: 0,
+                windForce: 0.0003,
+            },
+        ];
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const audio = new AudioEngine();
+
+        let engine = Engine.create();
+        let world = engine.world;
+        let bodies = {
+            ball: null,
+            leftFlipper: null,
+            rightFlipper: null,
+            launcher: null,
+            bumpers: [],
+            portal: null,
+            drain: null,
+            walls: [],
+        };
+
+        // ============================================
+        // INITIALIZATION & SETUP
+        // ============================================
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function initGame() {
+            // Clear world
+            World.clear(world);
+            Composite.clear(engine.world, false);
+
+            const w = canvas.width;
+            const h = canvas.height;
+            const dim = dimensions[gameState.dimension];
+
+            // Update physics
+            world.gravity.y = dim.gravity;
+
+            // Create walls (table boundaries)
+            bodies.walls = [];
+            bodies.walls.push(Bodies.rectangle(w / 2, 10, w, 20, { isStatic: true, friction: 0 }));
+            bodies.walls.push(Bodies.rectangle(10, h / 2, 20, h, { isStatic: true, friction: 0 }));
+            bodies.walls.push(Bodies.rectangle(w - 10, h / 2, 20, h, { isStatic: true, friction: 0 }));
+
+            // Drain at bottom
+            bodies.drain = Bodies.rectangle(w / 2, h - 30, w * 0.8, 40, { isStatic: true, friction: 0 });
+            bodies.drain.label = 'drain';
+
+            // Flippers (portrait mode)
+            const flipperLength = 80;
+            const flipperWidth = 12;
+            const flipperY = h - 120;
+
+            bodies.leftFlipper = Bodies.rectangle(w / 2 - 60, flipperY, flipperLength, flipperWidth, {
+                friction: 0.5,
+                restitution: 0.8,
+            });
+            bodies.leftFlipper.label = 'leftFlipper';
+            bodies.leftFlipper.isActive = false;
+
+            bodies.rightFlipper = Bodies.rectangle(w / 2 + 60, flipperY, flipperLength, flipperWidth, {
+                friction: 0.5,
+                restitution: 0.8,
+            });
+            bodies.rightFlipper.label = 'rightFlipper';
+            bodies.rightFlipper.isActive = false;
+
+            // Launcher spring
+            bodies.launcher = Bodies.rectangle(w - 40, h - 40, 30, 30, { isStatic: true });
+            bodies.launcher.label = 'launcher';
+            bodies.launcher.power = 0;
+
+            // Ball
+            const ballRadius = 8;
+            bodies.ball = Bodies.circle(w / 2, 100, ballRadius, {
+                friction: dim.friction,
+                restitution: dim.restitution,
+                density: 0.04,
+            });
+            bodies.ball.label = 'ball';
+            bodies.ball.dimension = gameState.dimension;
+
+            // Bumpers (3 in classic layout)
+            bodies.bumpers = [];
+            const bumperRadius = 20;
+            const bumperPositions = [
+                { x: w / 3, y: h / 3 },
+                { x: (w * 2) / 3, y: h / 3 },
+                { x: w / 2, y: h / 2 },
+            ];
+            for (let pos of bumperPositions) {
+                const bumper = Bodies.circle(pos.x, pos.y, bumperRadius, {
+                    isStatic: true,
+                    friction: 0,
+                    restitution: 1.2,
+                });
+                bumper.label = 'bumper';
+                bumper.hitCount = 0;
+                bodies.bumpers.push(bumper);
+            }
+
+            // Portal (dimension warp target)
+            bodies.portal = Bodies.circle(w / 2, h * 0.7, 25, {
+                isStatic: true,
+                friction: 0,
+                restitution: 1.0,
+            });
+            bodies.portal.label = 'portal';
+            bodies.portal.hitCount = 0;
+
+            // Add all to world
+            World.add(world, [
+                ...bodies.walls,
+                bodies.drain,
+                bodies.leftFlipper,
+                bodies.rightFlipper,
+                bodies.launcher,
+                bodies.ball,
+                ...bodies.bumpers,
+                bodies.portal,
+            ]);
+
+            gameState.portalHits = 0;
+        }
+
+        function startGame() {
+            document.getElementById('onboarding').style.display = 'none';
+            gameState.gameRunning = true;
+            gameState.gameOverFlag = false;
+            initGame();
+            gameLoop();
+        }
+
+        // ============================================
+        // PHYSICS & COLLISION HANDLING
+        // ============================================
+        function updatePhysics() {
+            const dim = dimensions[gameState.dimension];
+            const w = canvas.width;
+
+            // Apply viscosity (ocean theme)
+            if (dim.viscosity > 0 && bodies.ball) {
+                const dampingFactor = 1 - dim.viscosity;
+                bodies.ball.velocity.x *= dampingFactor;
+                bodies.ball.velocity.y *= dampingFactor;
+            }
+
+            // Apply wind gusts (storm theme)
+            if (dim.windForce > 0 && bodies.ball) {
+                if (Math.random() < 0.05) {
+                    const windDirection = Math.random() > 0.5 ? 1 : -1;
+                    Body.setVelocity(bodies.ball, {
+                        x: bodies.ball.velocity.x + windDirection * dim.windForce * w,
+                        y: bodies.ball.velocity.y,
+                    });
+                }
+            }
+
+            // Flipper control
+            if (bodies.leftFlipper && gameState.leftFlipperActive) {
+                Body.rotate(bodies.leftFlipper, -0.15);
+            } else if (bodies.leftFlipper) {
+                Body.rotate(bodies.leftFlipper, 0.1);
+            }
+
+            if (bodies.rightFlipper && gameState.rightFlipperActive) {
+                Body.rotate(bodies.rightFlipper, 0.15);
+            } else if (bodies.rightFlipper) {
+                Body.rotate(bodies.rightFlipper, -0.1);
+            }
+
+            // Check drain
+            if (bodies.ball && bodies.drain) {
+                const dist = Math.hypot(
+                    bodies.ball.position.x - bodies.drain.position.x,
+                    bodies.ball.position.y - bodies.drain.position.y
+                );
+                if (dist < 60) {
+                    ballLost();
+                }
+            }
+
+            Engine.update(engine, 1000 / 60);
+        }
+
+        function ballLost() {
+            if (gameState.gameRunning) {
+                audio.ballDrain();
+                gameState.balls--;
+                document.getElementById('balls').textContent = `BALLS: ${gameState.balls}`;
+
+                if (gameState.balls <= 0) {
+                    endGame();
+                } else {
+                    // Reset ball position
+                    Body.setPosition(bodies.ball, {
+                        x: canvas.width / 2,
+                        y: 100,
+                    });
+                    Body.setVelocity(bodies.ball, { x: 0, y: 0 });
+                    Body.setAngularVelocity(bodies.ball, 0);
+                    gameState.portalHits = 0;
+                }
+            }
+        }
+
+        function endGame() {
+            gameState.gameRunning = false;
+            gameState.gameOverFlag = true;
+
+            // Update high scores
+            if (gameState.score > gameState.highScores[gameState.dimension]) {
+                gameState.highScores[gameState.dimension] = gameState.score;
+            }
+
+            document.getElementById('gameOver').style.display = 'block';
+            document.getElementById('finalScore').textContent = `Final Score: ${gameState.score}`;
+            document.getElementById('bestDimension').textContent = `Best: ${gameState.highScores
+                .map((s, i) => `${dimensions[i].name}: ${s}`)
+                .join(' | ')}`;
+        }
+
+        // ============================================
+        // RENDERING
+        // ============================================
+        function drawDimension() {
+            const w = canvas.width;
+            const h = canvas.height;
+            const dim = dimensions[gameState.dimension];
+
+            // Background with theme
+            ctx.fillStyle = dim.bgColor;
+            ctx.fillRect(0, 0, w, h);
+
+            if (dim.theme === 'space') {
+                // Star field
+                ctx.fillStyle = '#ffffff';
+                ctx.globalAlpha = 0.6;
+                for (let i = 0; i < 100; i++) {
+                    const x = (Math.sin(i * 123) * w) % w;
+                    const y = (Math.cos(i * 456) * h) % h;
+                    const size = (Math.sin(i) * 0.5 + 1) * 0.5;
+                    ctx.fillRect(x, y, size, size);
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            if (dim.theme === 'ocean') {
+                // Wave distortion
+                ctx.strokeStyle = 'rgba(58, 185, 240, 0.1)';
+                ctx.lineWidth = 2;
+                for (let y = 0; y < h; y += 40) {
+                    ctx.beginPath();
+                    for (let x = 0; x < w; x += 20) {
+                        const waveOffset = Math.sin(x * 0.01 + Date.now() * 0.001) * 5;
+                        if (x === 0) ctx.moveTo(x, y + waveOffset);
+                        else ctx.lineTo(x, y + waveOffset);
+                    }
+                    ctx.stroke();
+                }
+
+                // Bubble particles
+                ctx.fillStyle = 'rgba(58, 185, 240, 0.2)';
+                const time = Date.now() * 0.001;
+                for (let i = 0; i < 10; i++) {
+                    const x = w * 0.2 + Math.sin(time * 0.5 + i) * w * 0.6;
+                    const y = h - ((time * 50 + i * 50) % h);
+                    const radius = 3 + Math.sin(time + i) * 1;
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            if (dim.theme === 'storm') {
+                // Lightning flash effect (random)
+                if (Math.random() < 0.02) {
+                    ctx.fillStyle = 'rgba(255, 211, 61, 0.15)';
+                    ctx.fillRect(0, 0, w, h);
+                }
+            }
+        }
+
+        function drawTable() {
+            const dim = dimensions[gameState.dimension];
+
+            // Walls
+            ctx.strokeStyle = dim.primaryColor;
+            ctx.lineWidth = 3;
+            for (let wall of bodies.walls) {
+                ctx.strokeRect(
+                    wall.position.x - 10,
+                    wall.position.y - 10,
+                    20,
+                    20
+                );
+            }
+
+            // Drain
+            ctx.strokeStyle = dim.secondaryColor;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.6;
+            ctx.strokeRect(
+                bodies.drain.position.x - 80,
+                bodies.drain.position.y - 20,
+                160,
+                40
+            );
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = dim.secondaryColor;
+            ctx.font = '12px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('DRAIN', bodies.drain.position.x, bodies.drain.position.y + 5);
+        }
+
+        function drawBumpers() {
+            const dim = dimensions[gameState.dimension];
+
+            for (let bumper of bodies.bumpers) {
+                ctx.save();
+                ctx.translate(bumper.position.x, bumper.position.y);
+                ctx.rotate(bumper.angle);
+
+                // Different bumper shapes per dimension
+                if (dim.theme === 'space') {
+                    // Asteroids
+                    ctx.strokeStyle = dim.primaryColor;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    for (let i = 0; i < 6; i++) {
+                        const angle = (i / 6) * Math.PI * 2;
+                        const r = 20 + Math.sin(i) * 5;
+                        const x = Math.cos(angle) * r;
+                        const y = Math.sin(angle) * r;
+                        if (i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                } else if (dim.theme === 'ocean') {
+                    // Coral
+                    ctx.strokeStyle = dim.primaryColor;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 20, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.strokeStyle = dim.primaryColor;
+                    ctx.lineWidth = 1;
+                    for (let i = 0; i < 4; i++) {
+                        const angle = (i / 4) * Math.PI * 2;
+                        ctx.beginPath();
+                        ctx.moveTo(0, 0);
+                        ctx.lineTo(Math.cos(angle) * 20, Math.sin(angle) * 20);
+                        ctx.stroke();
+                    }
+                } else {
+                    // Standard circles
+                    ctx.fillStyle = dim.primaryColor;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 20, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = dim.secondaryColor;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }
+        }
+
+        function drawPortal() {
+            const dim = dimensions[gameState.dimension];
+            const time = Date.now() * 0.005;
+
+            ctx.save();
+            ctx.translate(bodies.portal.position.x, bodies.portal.position.y);
+
+            // Spinning portal
+            ctx.strokeStyle = dim.primaryColor;
+            ctx.lineWidth = 3;
+            for (let i = 0; i < 3; i++) {
+                ctx.globalAlpha = 0.5 - i * 0.15;
+                ctx.beginPath();
+                const radius = 25 + i * 8;
+                ctx.arc(0, 0, radius, time + i * Math.PI * 0.67, time + i * Math.PI * 0.67 + Math.PI * 1.5);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+
+            // Portal center
+            ctx.fillStyle = dim.secondaryColor;
+            ctx.globalAlpha = 0.8;
+            ctx.beginPath();
+            ctx.arc(0, 0, 10, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+
+            // Portal hit counter
+            ctx.fillStyle = dim.primaryColor;
+            ctx.font = '14px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${gameState.portalHits}/3`, bodies.portal.position.x, bodies.portal.position.y + 40);
+        }
+
+        function drawFlippers() {
+            const dim = dimensions[gameState.dimension];
+
+            for (let flipper of [bodies.leftFlipper, bodies.rightFlipper]) {
+                ctx.save();
+                ctx.translate(flipper.position.x, flipper.position.y);
+                ctx.rotate(flipper.angle);
+
+                ctx.fillStyle = dim.secondaryColor;
+                ctx.fillRect(-40, -6, 80, 12);
+                ctx.strokeStyle = dim.primaryColor;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(-40, -6, 80, 12);
+
+                ctx.restore();
+            }
+        }
+
+        function drawLauncher() {
+            const dim = dimensions[gameState.dimension];
+            const w = canvas.width;
+            const h = canvas.height;
+            const launcherX = w - 40;
+            const launcherY = h - 40;
+
+            ctx.fillStyle = dim.primaryColor;
+            ctx.fillRect(launcherX - 15, launcherY - 15, 30, 30);
+            ctx.strokeStyle = dim.secondaryColor;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(launcherX - 15, launcherY - 15, 30, 30);
+
+            // Launch spring indicator
+            if (gameState.launcherPower > 0) {
+                ctx.strokeStyle = dim.secondaryColor;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(launcherX, launcherY - 15);
+                ctx.lineTo(launcherX, launcherY - 15 - gameState.launcherPower * 2);
+                ctx.stroke();
+            }
+
+            // Label
+            ctx.fillStyle = dim.primaryColor;
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('LAUNCH', launcherX, launcherY + 25);
+        }
+
+        function drawBall() {
+            const dim = dimensions[gameState.dimension];
+
+            ctx.save();
+            ctx.translate(bodies.ball.position.x, bodies.ball.position.y);
+            ctx.rotate(bodies.ball.angle);
+
+            // Ball trail (space theme)
+            if (dim.theme === 'space') {
+                ctx.strokeStyle = dim.primaryColor;
+                ctx.globalAlpha = 0.3;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(0, 0, 12, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            ctx.fillStyle = dim.secondaryColor;
+            ctx.beginPath();
+            ctx.arc(0, 0, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = dim.primaryColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.globalAlpha = 1;
+            ctx.restore();
+        }
+
+        function render() {
+            drawDimension();
+            drawTable();
+            drawBumpers();
+            drawPortal();
+            drawFlippers();
+            drawLauncher();
+            drawBall();
+        }
+
+        // ============================================
+        // COLLISION DETECTION
+        // ============================================
+        function checkCollisions() {
+            if (!gameState.gameRunning || !bodies.ball) return;
+
+            // Bumper collisions
+            for (let bumper of bodies.bumpers) {
+                const dist = Math.hypot(
+                    bodies.ball.position.x - bumper.position.x,
+                    bodies.ball.position.y - bumper.position.y
+                );
+                if (dist < 28) {
+                    const angle = Math.atan2(
+                        bodies.ball.position.y - bumper.position.y,
+                        bodies.ball.position.x - bumper.position.x
+                    );
+                    const force = 0.015;
+                    Body.applyForce(bodies.ball, bodies.ball.position, {
+                        x: Math.cos(angle) * force,
+                        y: Math.sin(angle) * force,
+                    });
+
+                    audio.bumperBounce(600 + Math.random() * 400);
+                    gameState.score += 100;
+                    document.getElementById('score').textContent = `SCORE: ${gameState.score}`;
+                }
+            }
+
+            // Portal collisions
+            const portalDist = Math.hypot(
+                bodies.ball.position.x - bodies.portal.position.x,
+                bodies.ball.position.y - bodies.portal.position.y
+            );
+            if (portalDist < 35) {
+                audio.portalHit();
+                gameState.portalHits++;
+                gameState.score += 250;
+                document.getElementById('score').textContent = `SCORE: ${gameState.score}`;
+
+                if (gameState.portalHits >= 3) {
+                    warpDimension();
+                }
+            }
+        }
+
+        function warpDimension() {
+            audio.dimensionWarp();
+            gameState.score += 1000;
+            document.getElementById('score').textContent = `SCORE: ${gameState.score}`;
+
+            // Transition effect
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            setTimeout(() => {
+                gameState.dimension = (gameState.dimension + 1) % dimensions.length;
+                document.getElementById('dimension').textContent = dimensions[gameState.dimension].name;
+                gameState.portalHits = 0;
+                initGame();
+            }, 500);
+        }
+
+        // ============================================
+        // INPUT HANDLING
+        // ============================================
+        gameState.leftFlipperActive = false;
+        gameState.rightFlipperActive = false;
+
+        document.addEventListener('touchstart', (e) => {
+            if (!gameState.gameRunning) return;
+
+            const touch = e.touches[0];
+            const x = touch.clientX;
+            const y = touch.clientY;
+
+            // Launcher drag
+            if (x > canvas.width - 80 && y > canvas.height - 80) {
+                gameState.isDraggingLauncher = true;
+                gameState.touchStartY = y;
+                gameState.launcherPower = 0;
+            }
+
+            // Flipper control
+            if (x < canvas.width / 2) {
+                gameState.leftFlipperActive = true;
+                audio.flipperClick();
+            } else {
+                gameState.rightFlipperActive = true;
+                audio.flipperClick();
+            }
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            if (!gameState.gameRunning || !gameState.isDraggingLauncher) return;
+
+            const touch = e.touches[0];
+            const dy = gameState.touchStartY - touch.clientY;
+            gameState.launcherPower = Math.max(0, Math.min(100, dy / 2));
+        });
+
+        document.addEventListener('touchend', (e) => {
+            if (!gameState.gameRunning) return;
+
+            // Launch ball
+            if (gameState.isDraggingLauncher && gameState.launcherPower > 0) {
+                const force = 0.005 + gameState.launcherPower * 0.00005;
+                Body.applyForce(bodies.ball, bodies.ball.position, {
+                    x: 0,
+                    y: -force,
+                });
+                audio.ballLaunch();
+                gameState.launcherPower = 0;
+            }
+
+            gameState.isDraggingLauncher = false;
+            gameState.leftFlipperActive = false;
+            gameState.rightFlipperActive = false;
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (!gameState.gameRunning) return;
+            if (e.key === 'ArrowLeft' || e.key === 'a') {
+                gameState.leftFlipperActive = true;
+                audio.flipperClick();
+            }
+            if (e.key === 'ArrowRight' || e.key === 'd') {
+                gameState.rightFlipperActive = true;
+                audio.flipperClick();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a') gameState.leftFlipperActive = false;
+            if (e.key === 'ArrowRight' || e.key === 'd') gameState.rightFlipperActive = false;
+        });
+
+        // ============================================
+        // MAIN LOOP
+        // ============================================
+        function gameLoop() {
+            if (!gameState.gameRunning) {
+                if (!gameState.gameOverFlag) {
+                    requestAnimationFrame(gameLoop);
+                }
+                return;
+            }
+
+            updatePhysics();
+            checkCollisions();
+            render();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        document.getElementById('onboarding').style.display = 'flex';
+
+        // Service worker registration
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed:', err));
+        }
+    </script>
+</body>
+</html>
